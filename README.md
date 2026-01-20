@@ -150,8 +150,7 @@ python3 linkedinHunter.py --api-key YOUR_API_KEY --cse-id YOUR_CSE_ID --org "Fic
 
 ### Execution Example
 
-The following example illustrates a real execution of linkedinHunter.  
-In a single run, the tool identified **more than 750 unique employee profiles**
+The following example illustrates a real execution of linkedinHunter. In a single run, the tool identified **more than 750 unique employee profiles**
 associated with a mid-size organization, relying exclusively on publicly indexed
 data available through Google Search.
 
@@ -212,7 +211,7 @@ A secondary file provides execution and usage metrics:
 
 ## API Cost Considerations
 
-> [!INFO]
+> [!NOTE]
 > Google Custom Search typically provides **100 free queries per day**.
 > Additional requests are billed at approximately **$5 per 1,000 queries**.
 
