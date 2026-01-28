@@ -27,6 +27,10 @@ from datetime import datetime
 GOOGLE_API_URL = "https://www.googleapis.com/customsearch/v1"
 REQUEST_DELAY = 1.0
 
+"""
+Coverage US
+"""
+"""
 COMMON_ROLES = [
     "",
     "IT", "Human Resources", "Recruiter", "Marketing", "Finance",
@@ -34,7 +38,36 @@ COMMON_ROLES = [
     "Consultant", "Analyst", "CEO", "CTO", "CISO", "Administrator",
     "Management", "Legal", "Support", "HR", "Health", "Operations"
 ]
+"""
 
+"""
+Coverage ES
+"""
+COMMON_ROLES = [
+    "", 
+    
+    "Gestor", "Gestor Comercial", "Director de Oficina", "Subdirector",
+    "Interventor", "Cajero", "Atención al Cliente", "Asesor Financiero",
+    "Banca Privada", "Banca Personal", "Banca de Empresas", "Gerente",
+    "Territorial", "Zona", 
+    
+    "Analista", "Riesgos", "Admisiones", "Auditoría", "Control",
+    "Recursos Humanos", "Talento", "Selección", "Formación",
+    "Marketing", "Comunicación", "Prensa", "Marca",
+    "Legal", "Jurídico", "Compliance", "Normativa", "Abogado",
+    "Contabilidad", "Financiero", "Tesoreria", "Fiscal",
+    "Operaciones", "Administrativo", "Secretaría",
+    
+    "Informática", "Sistemas", "Tecnología", "Desarrollador", "Programador",
+    "Arquitecto", "Ingeniero", "Ciberseguridad", "Seguridad", "CISO",
+    "Datos", "Data", "Analítica", "Big Data", "Transformación",
+    "Digital", "Innovation", "Innovación", "Agile", "Scrum",
+    "Soporte", "Helpdesk", "Técnico",
+    
+    "Director", "Responsable", "Jefe", "Coordinador", "Manager",
+    "Delegado", "Presidente", "Consejero", "Socio", 
+    "CEO", "CTO", "CIO", "CFO", "COO" 
+]
 
 @dataclass
 class Employee:
@@ -44,7 +77,7 @@ class Employee:
     name: str
     linkedin_url: str
     role_snippet: str
-    generated_email: Optional[str] = None
+    generated_emails: List[str] = None
 
 
 class LinkedInHarvester:
@@ -53,15 +86,18 @@ class LinkedInHarvester:
     inferring emails, and maintaining deduplicated results.
     """
 
-    def __init__(self, api_key: str, cse_id: str, organization: str, email_format: Optional[str] = None):
+    def __init__(self, api_key: str, cse_id: str, organization: str, output_file: str, email_format: Optional[str] = None):
         self.api_key = api_key
         self.cse_id = cse_id
         self.organization = organization
+        self.output_file = output_file 
         self.email_format = email_format
         self.found_employees: Dict[str, Employee] = {}
         self.session = requests.Session()
         self.total_requests = 0
         self.start_time = time.time()
+        
+        self.save_results()
 
     def _remove_accents(self, value: str) -> str:
         """
@@ -80,32 +116,52 @@ class LinkedInHarvester:
         parts = re.split(r"\s[–-]\s", cleaned)
         return parts[0].strip()
 
-    def _generate_email(self, full_name: str) -> Optional[str]:
+    def _generate_emails(self, full_name: str) -> Optional[str]:
         """
-        Infers an email address based on the provided naming convention.
+        Generates a list of potential email addresses based on Spanish naming conventions.
+        Strategy:
+          - If 2 words (Name Surname): {last} uses Surname.
+          - If 3+ words (Name Surname1 Surname2 OR Name1 Name2 Surname1...):
+            Generates emails using the 2nd word and the 3rd word to maximize hit rate.
         """
+
         if not self.email_format:
-            return None
+            return []
 
         normalized = self._remove_accents(full_name).lower()
+        normalized = re.sub(r"[^a-z0-9\s]", "", normalized)
         name_parts = normalized.split()
 
         if len(name_parts) < 2:
-            return None
+            return []
 
-        first = re.sub(r"[^a-z0-9]", "", name_parts[0])
-        last = re.sub(r"[^a-z0-9]", "", name_parts[-1])
+        first_name = name_parts[0]
+        first_initial = first_name[0]
 
-        if not first or not last:
-            return None
+        candidate_surnames = []
 
-        email = self.email_format
-        email = email.replace("{first}", first)
-        email = email.replace("{last}", last)
-        email = email.replace("{f}", first[0])
-        email = email.replace("{l}", last[0])
+        if len(name_parts) == 2:
+            candidate_surnames.append(name_parts[1])
+        else:
+            candidate_surnames.append(name_parts[1])
+            candidate_surnames.append(name_parts[2])
 
-        return email
+        generated_list = []
+        
+        for last in candidate_surnames:
+            if not last: 
+                continue
+                
+            email = self.email_format
+            email = email.replace("{first}", first_name)
+            email = email.replace("{last}", last)
+            email = email.replace("{f}", first_initial)
+            email = email.replace("{l}", last[0])
+            
+            if email not in generated_list:
+                generated_list.append(email)
+
+        return generated_list
 
     def search_google(self, query: str, start_index: int) -> List[Dict]:
         """
@@ -166,17 +222,20 @@ class LinkedInHarvester:
                         name=name,
                         linkedin_url=link,
                         role_snippet=item.get("snippet", "").replace("\n", " "),
-                        generated_email=self._generate_email(name)
+                        generated_emails=self._generate_emails(name) 
                     )
 
                     self.found_employees[link] = employee
-                    print(f"    + {name}")
+                    emails_str = ", ".join(employee.generated_emails) if employee.generated_emails else "N/A"
+                    print(f"    + {name} -> [{emails_str}]")
 
-    def save_results(self, filename: str):
+                    self.save_results()
+
+    def save_results(self):
         """
         Persists discovered profiles to disk in JSON format.
         """
-        with open(filename, "w", encoding="utf-8") as fh:
+        with open(self.output_file, "w", encoding="utf-8") as fh:
             json.dump([asdict(e) for e in self.found_employees.values()], fh, indent=4, ensure_ascii=False)
 
     def save_metrics(self, filename: str):
@@ -211,6 +270,7 @@ def main():
         api_key=args.api_key,
         cse_id=args.cse_id,
         organization=args.org,
+        output_file=args.output,
         email_format=args.email_format
     )
 
@@ -219,7 +279,6 @@ def main():
     except KeyboardInterrupt:
         print("\n[!] Interrupted by user")
     finally:
-        harvester.save_results(args.output)
         harvester.save_metrics(args.metrics)
 
 
